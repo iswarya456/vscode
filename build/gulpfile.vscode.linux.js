@@ -20,6 +20,7 @@ const debianRecommendedDependencies = require('./linux/debian/dep-lists').recomm
 const path = require('path');
 const cp = require('child_process');
 const util = require('util');
+const { performance } = require('perf_hooks');
 
 const exec = util.promisify(cp.exec);
 const root = path.dirname(__dirname);
@@ -155,6 +156,8 @@ function prepareRpmPackage(arch) {
 	const stripBinary = process.env['STRIP'] ?? '/usr/bin/strip';
 
 	return function () {
+		performance.mark(`prepareRpmPackage-${rpmArch}-start`);
+
 		const desktop = gulp.src('resources/linux/code.desktop', { base: '.' })
 			.pipe(rename('BUILD/usr/share/applications/' + product.applicationName + '.desktop'));
 
@@ -219,7 +222,26 @@ function prepareRpmPackage(arch) {
 
 		const all = es.merge(code, desktops, appdata, workspaceMime, icon, bash_completion, zsh_completion, spec, specIcon);
 
-		return all.pipe(vfs.dest(getRpmBuildPath(rpmArch)));
+		const result = all.pipe(vfs.dest(getRpmBuildPath(rpmArch)));
+
+		result.on('end', () => {
+			performance.mark(`prepareRpmPackage-${rpmArch}-end`);
+			performance.measure(`prepareRpmPackage-${rpmArch}`,
+				`prepareRpmPackage-${rpmArch}-start`,
+				`prepareRpmPackage-${rpmArch}-end`);
+
+			// Log the measurement
+			const entries = performance.getEntriesByName(`prepareRpmPackage-${rpmArch}`);
+			if (entries.length) {
+				console.log(`prepareRpmPackage-${rpmArch}: ${entries[0].duration.toFixed(2)}ms`);
+			}
+
+			// Clear the marks to avoid memory leaks
+			performance.clearMarks(`prepareRpmPackage-${rpmArch}-start`);
+			performance.clearMarks(`prepareRpmPackage-${rpmArch}-end`);
+		});
+
+		return result;
 	};
 }
 
